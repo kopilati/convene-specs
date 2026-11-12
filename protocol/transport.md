@@ -149,9 +149,10 @@ first appeared. A message id is minted once and never re-minted for a different 
   "creator": <identity id>,
   "founder": <identity id>,
   "members": [ <member>, ... ],
-  "charter": { "purpose": "group" | "device-set",     founding revision only
+    "charter": { "purpose": "group" | "device-set",
                "acceptance": "founder-or-majority",
-               "presence": true | false },
+               "presence": true | false,
+               "identity": <identity id> },                device sets only
   "warrant": <warrant>,
   "sig": (sig, `convene/v1/revision`, by creator) }
 ```
@@ -168,12 +169,14 @@ every sibling's presence key, which is what lets it verify a presence signature.
 { "kind": "enactment", "proposal": <proposal>, "approvals": [ <approval>, ... ] }
 ```
 
-The founding revision has no `parent`, has `id` equal to its `lineage`, carries the `charter`,
-stands on a founding warrant, and names its creator as founder. Every later revision names its
-parent, carries the founder copied from its parent, and stands on a rotation or an enactment. The
+The founding revision has no `parent`, has `id` equal to its `lineage`, stands on a founding
+warrant, and names its creator as founder. Every revision carries the `charter` and the `founder`,
+copied from the founding revision down the chain, so that a member holding only a suffix knows
+both. Every later revision names its parent and stands on a rotation or an enactment. The
 creator is among the members, except for the one revision that enacts the creator's own leaving.
-In a device set (`purpose` = `device-set`) the members are device cards and `presence` is true;
-in a group they are identity cards and `presence` is false.
+In a device set (`purpose` = `device-set`) the members are device cards, `presence` is true, and
+`identity` names the identity whose devices they are; in a group the members are identity cards,
+`presence` is false, and there is no `identity`.
 
 6.3 **Proposal**
 
@@ -239,8 +242,9 @@ any sender that the set's current revision does not name.
 ```
 
 There is no catch-up response record: the responder drops at the requester's edge, as ordinary
-envelopes, every record it holds for the lineage that the requester did not list and that the
-requester is entitled to (10.8).
+envelopes, every revision and every message it holds for the lineage that the requester did not
+list and is entitled to (10.8). Pending proposals and approvals are not served: a proposal is its
+proposer's to re-ask on the epoch that stands.
 
 ## 7. Sealing and envelopes
 
@@ -463,11 +467,12 @@ the identity belongs to. A device that cannot produce a presence signature canno
 approve an eviction or an admission, which is the point.
 
 10.8 **Catching up.** A device that may have missed deliveries — it was off, its relay expired a
-mailbox, it was just admitted — drops a catch-up request (6.6) at the edge of any member of the
-lineage. A responder MUST verify the request's signature against a card the lineage's chain
-holds, and MUST then drop at the requester's edge every revision, proposal and approval it holds
-for the lineage that the request did not list, and every message it holds for the lineage sealed
-under an epoch the requester was a member of that the request did not list. A responder MUST NOT
+mailbox, it was just admitted — drops a catch-up request (6.6), sealed under the newest epoch key it holds for the lineage, at the
+edge of every current member of the lineage, its own among them. Every holder answers and the
+requester's fold discards the duplicates. A responder MUST verify the request's signature against
+a card the lineage's chain holds, and MUST then drop at the requester's edge every revision it
+holds of an epoch the requester was a member of that the request did not list, and every message
+it holds sealed under such an epoch whose id the request did not list. A responder MUST NOT
 serve a requester the chain does not name, and MUST NOT serve epochs the requester was not in.
 Within a device set, a device that collects anything at the identity's edge MUST forward the cells
 it collected, unchanged, to each sibling device's edge; siblings hold the same keys and open them
