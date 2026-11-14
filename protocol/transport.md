@@ -428,31 +428,47 @@ pigeonholes it is nearest, and answer who is nearest a mark; a device that canno
 that uses the swarm without being part of it. No peer is trusted, no peer acknowledges anything,
 and no peer is asked who a pigeonhole belongs to.
 
-9.1 **Peers, routes and discovery.** A peer is named by its identity id and reached at a
-**route**: its identity id at a dead drop, or an iroh endpoint written
+9.1 **Peers, routes and discovery.** A peer is named by its **endpoint id** — on a peer in full
+the iroh endpoint id, on a leaf an id minted from its identity id — and reached at a **route**:
+its identity id at a dead drop, or an iroh endpoint written
 `iroh:<endpoint id in z-base-32>?a=<ip:port>,…&r=<relay url>` — the id, the addresses it was last
-seen at, and its home relay, so a card that carries the route (5.3) lets the first connection
-happen with no lookup. The reference binding is iroh; the drafts name the seam `Wire`. Between
-peers in full, frames travel one per unidirectional QUIC stream under the ALPN `convene/frames/1`;
-to and from a leaf they travel in a dead drop's `to`/`cell` frames (9.5). A frame is unit-separated
-text, and there are four:
+seen at, and its home relay, so a card that carries the route (5.4) lets the first connection
+happen with no lookup. An endpoint id says nothing about an identity: a sub maps to an endpoint
+only through a card or a hello, so a table of endpoints can be shared without saying who knows
+whom, and a stranger can hold for a stranger. The reference binding is iroh; the drafts name the
+seam `Wire`. Between peers in full, frames travel one per unidirectional QUIC stream under the
+ALPN `convene/frames/1`; to and from a leaf they travel in a dead drop's `to`/`cell` frames
+(9.5). A frame is unit-separated text, and there are seven:
 
 | frame | meaning |
 |---|---|
 | `hold ␟ mark ␟ tag ␟ hops ␟ content` | hold this cell under the mark |
-| `ask ␟ asker id ␟ reply route ␟ mark…` | hand the reply route a copy of what you hold under each mark |
+| `ask ␟ reply ␟ mark…` | hand `reply` a copy of what you hold under each mark |
 | `held ␟ mark ␟ tag ␟ hops ␟ content` | a copy of what I hold under the mark |
-| `hello ␟ id ␟ route` | reach this id at this route as well |
+| `hello ␟ endpoint ␟ subs ␟ route` | this endpoint, the subs it speaks for (to an acquaintance only), a route it is reached at |
+| `peers ␟ endpoint ␟ route…` | endpoints I know that a stranger may reach, each with an `iroh:` route; never a sub, never a leaf |
+| `via ␟ hops ␟ endpoint ␟ route ␟ inner` | mix `inner` and send it on toward the endpoint at that route (9.3) |
+| `to ␟ token ␟ inner` | hand `inner` to whoever asked with this token (9.3) |
 
-Peers keep a table of the peers they know — from cards, from hellos, from being asked — and answer
-two questions: *how many peers are reachable* and *which k reachable peers are nearest this
-mark*, nearness being the distance between the hashed mark and the hashed peer id; the asker's
-own node is always a candidate, so the answer is never empty. The drafts name this seam
-`Discovery`. A device joins by dialing any peer it knows — a route from a card, a public drop, a
-peer on the local network — and tells each peer it knows its own routes with a `hello`; a leaf
-announces nothing beyond that. A peer MUST NOT answer a nearness question with peers it has not
-heard from within 10 minutes. (A wider table — peers learned from peers, a Kademlia-style walk —
-is owed, 14; today a peer knows whom its cards and hellos name.)
+`reply` is `<endpoint>@<route>`, or `<tumbler endpoint>/<token>@<tumbler route>` when the ask
+came through a tumbler. A frame carries the route of whoever is to receive it next and of whoever
+is to answer it, because a tumbler need not know the peers it passes frames between.
+
+Peers keep a table of the endpoints they know — from cards, from hellos, from tables other peers
+shared — with their routes, the subs an acquaintance speaks for, and when each was last heard
+from, and answer two questions: *how many peers are reachable* and *which k reachable peers are
+nearest this mark*, nearness being the distance between the hashed mark and the hashed endpoint
+id; the asker's own endpoint is always a candidate, so the answer is never empty. The drafts name
+this seam `Discovery`. A device joins by dialing any peer it knows — a route from a card, a public
+drop, a peer on the local network — and greets each peer it knows with a `hello` carrying its
+routes, the moment it learns the peer, whenever a route of its own moves, and every five minutes
+after; a peer in full binds the same port each time it starts, because a route without a relay
+URL is only as durable as its port; a peer answers a hello with
+the `peers` it can share and a hello of its own, and greets any endpoint it learns from a table,
+so that two acquaintances' tables grow into one swarm. A leaf has no route a stranger could use,
+so it is in no shared table; the peers that know it by its card name it. A peer MUST NOT answer a
+nearness question with an endpoint it has not heard from within 10 minutes, and SHOULD keep no
+more than a few thousand, letting the strangers silent longest go first.
 
 9.2 **Custody.** For each cell, the sender asks for the k peers nearest the cell's pigeonhole and
 places the cell at each one it is handed — a `hold` of the mark and the cell, carried through the
@@ -465,15 +481,25 @@ other record is placed once; catch-up (10.8) covers what the custodians no longe
 cell under its mark for at least 24 hours and SHOULD keep it for 7 days, hands a **copy** to
 whoever asks for the mark, and periodically asks who the mark's custodians are now and places the
 cell at any of them that lacks it, so that a peer leaving does not take the only copies with it. A
-custodian MAY refuse, silently, beyond a limit its operator publishes. **k is 5** unless the
+custodian MAY bound what it holds under one mark — the reference floors keep the newest 256
+cells and let the oldest go, which in a step full of loops is the noise — and MAY refuse,
+silently, beyond a limit its operator publishes. **k is 5** unless the
 swarm's operators publish another value with its derivation.
 
-9.3 **Mixing.** Every peer is a tumbler. A cell that arrives with hops above zero is held with
-others until the peer has gathered its batch threshold, then the whole batch leaves at once,
-reordered, each cell one hop shorter, each toward a fresh peer; the last hop delivers to the
-custodian or the edge the cell was for. The threshold is 8 cells or 5 seconds, whichever comes
-first, unless the swarm publishes otherwise. A recipient's ask for a pigeonhole travels the same
-way, so a custodian sees a tumbler asking, never the recipient.
+9.3 **Mixing.** Every peer is a tumbler, and every frame to another peer — a `hold`, an `ask`,
+a `held` — travels `via` one: the sender picks a reachable peer at random, which may be the
+destination itself, and hands it the frame with one hop to spend. A frame that arrives with hops
+above zero is held with others until the tumbler has gathered its batch, then the whole batch
+leaves at once, reordered, each frame one hop shorter, each toward a fresh peer; the last hop
+delivers to the endpoint the frame names, at the route it carries. **How a tumbler withholds is
+its own setting**: a batch leaves at `withhold` frames or after `seconds` with anything in the
+pen, whichever comes first, 8 and 5 unless its operator sets otherwise (`swarm.toml` beside the
+seat on a Mac). A recipient's ask for a pigeonhole travels the same way, and is answered the
+same way: the tumbler keeps the asker's route under a token the asker chose — the same for one
+custodian within an hour, so a custodian can tell a repeated ask from a new one without learning
+who asks — rewrites the ask's reply to its own endpoint and that token, and hands the custodian's
+`held` answers back through `to`. A custodian sees a tumbler asking, never the recipient. A
+hello, a table and a `to` go straight, not via: they are about routes, not about anyone's words.
 
 9.4 **The same mechanics at every size.** There is no small-swarm regime. In a swarm of two the
 custodians of every mark are the two of them: the sender places the cell with the recipient and
@@ -551,7 +577,9 @@ when the others have approved. A client MUST NOT ask the person to enact.
   revision under the new key, wraps the new key to each member of the new epoch under their
   agreement key (`invitation` for the admitted, `rotation` for the rest), and drops the revision
   and the wrapped key at each member's edge. The evicted get nothing. The enactor drops the
-  revision at its own edge without a wrapped key; its ring already holds the key. An enactor who
+  revision at its own edge with a rotation wrapped key of its own — not for its ring, which
+  adopts the key it minted, but for the other devices of its set, which read the identity's edge
+  as their own and held no key of the epoch (10.6). An enactor who
   is leaving drops the key at nobody's edge for itself and discards the key it minted.
 - Any member may **rotate**: a successor with the same members, a fresh key, warrant = rotation,
   delivered as above. Clients SHOULD rotate at a random interval and MUST rotate every lineage an
@@ -591,8 +619,17 @@ word, any other device needs the majority of the set's devices, the admitted dev
 Enacting wraps the set's new epoch key **and the identity's secrets** to the new device
 (`entrusted`, 6.5) and drops them at the new device's edge, its device id. The new device adopts,
 stores the identity's secrets in its ring, registers the identity's edge, and asks the admitting
-device to rotate every lineage the identity belongs to (10.3). The new device holds no epoch key
-of any group from before its admission: it reads nothing from before, by design.
+device to rotate every lineage the identity belongs to (10.3) — in the reference floors the admitting
+device rotates every chat the moment it enacts, and every rotation and enactment leaves the actor
+a wrapped key of its own at the identity's edge, which is how a sibling device comes to hold the
+epoch. The new device holds no epoch key of any group from before its admission: it reads nothing
+from before, by design — at the granularity of the step (8.2): a key placed at the identity's
+edge in the same five-minute step as the admission sits under the mark the new device asks, and
+is readable to it. On a Mac the new device is a seat of its own beside the identity's, over one
+endpoint and one depot: it shows its admission code — its device card link, its route on it —
+until the entrusted delivery arrives, then opens the identity's seat with the card the set's
+founding revision names; the device's seat stays, for the set's later business. A phone admits
+from *Me, Add a device*; a Mac from *Your card, Add a device*.
 
 10.7 **Evicting a device.** A presence-signed eviction proposal, carried as in 10.6 with the
 evicted device not counted, enacted by its proposer. The remaining devices rotate every lineage
@@ -629,10 +666,12 @@ sender's reading. A
 receipt that later covers it restores it (6.7) and the client says so in one line. A withdrawn
 message leaves no trace for the sender.
 
-10.11 **Acknowledging.** On its beat, a device that holds any message for a lineage sends a
-receipt (6.7) naming its frontier to every current member of the lineage. A device MUST send a
-receipt at least once per slot in which it holds something new, and MUST NOT send one more often
-than its beat allows. A sender that reads a receipt covering one of its messages tells its
+10.11 **Acknowledging.** On its beat, a device whose frontier in a lineage has moved since the
+receipt it last sent there sends a receipt (6.7) naming the frontier to every current member of
+the lineage — for every lineage it holds, whether or not the person is looking at it. A device
+MUST send a receipt at least once per slot in which it holds something new, MUST NOT send one
+more often than its beat allows, and SHOULD NOT send one whose frontier it has already sent: a
+receipt a beat fills a pair's mark with nothing new. A sender that reads a receipt covering one of its messages tells its
 transport that the copy to that member is delivered, so nothing of it is carried further.
 
 ## 11. What a client keeps
@@ -670,12 +709,13 @@ transport that the copy to that member is delivered, so nothing of it is carried
 - **Metadata.** A custodian learns that a mark was written and asked for, by a tumbler, when
   (9.7); a tumbler learns cells in and a batch out. Pigeonholes are pairwise and per cell, so
   nothing a peer sees links two cells, a cell to a pair, or a pair to a time; the beat (9.6) makes
-  a device's traffic constant whether or not it has anything to say. **How much of this holds is
-  conditional on the swarm's size**, though the mechanics are not: in a swarm of two every mark's
-  custodians are the two of them, mixing hides little, and a custodian can guess whose mark it
-  holds; a client states the population rather than claiming unlinkability it does not have. A
-  peer learns the routes of the peers that know it by their cards and hellos; a leaf publishes
-  nothing further.
+  a device's traffic constant whether or not it has anything to say. A tumbler learns the
+  endpoints and routes on either side of it, and a token; a custodian learns a tumbler's route and
+  a token, never who asked. **How much of this holds is conditional on the swarm's size**, though
+  the mechanics are not: in a swarm of two every mark's custodians are the two of them, the
+  tumbler is the other party, and a custodian can guess whose mark it holds; a client states the
+  population rather than claiming unlinkability it does not have. A shared table names endpoints
+  and routes, never a sub or a leaf; who speaks for an endpoint is told to acquaintances only.
 - **Replay.** Message ids deduplicate; approvals bind to a proposal id; proposals bind to a parent
   revision and are void once it moves; a `register` carries a time and a signature.
 - **Downgrade.** `v` is inside every envelope's AAD and every card's signature; a reader MUST
@@ -705,10 +745,15 @@ These are decided in direction and not in detail, and a client built today shoul
 - the numbers, with their derivations: k, the tumbler threshold, the beat, the step, the
   retention — each stated here with a default and owed a published formula over the swarm's
   measured size and availability, and a way for a client to learn the swarm's published values;
-- a wider peer table: today a peer knows the peers its cards and hellos name, so custody is among
-  acquaintances; a swarm of strangers needs peers learned from peers and a nearness walk, and a
-  leaf needs a peer in full to ask on its behalf for marks whose custodians it cannot reach;
-- the tumbling itself in the floors: hops are carried on every cell and spent by no floor yet;
+- a nearness walk: a peer's table grows from its acquaintances' tables and theirs, which fills a
+  swarm of hundreds and not one of millions; a Kademlia-style walk toward a mark's custodians is
+  owed for the latter;
+- a leaf's asks for marks whose custodians it cannot name: a peer in full places a leaf's cells
+  with endpoints the leaf never learns, so a leaf should be able to hand its asks to a peer in
+  full that asks on its behalf;
+- more than one hop, and a tumbler that reaches a destination it cannot route to: today a frame
+  whose last tumbler reaches neither the route it carries nor the endpoint is lost, and the
+  sender's beat places it again by another tumbler;
 - the one-cell-per-beat claim in the floors: a post places at once, and the slot turning places
   every kept message again;
 - browser support for the web floor over the frames of 9.1;
