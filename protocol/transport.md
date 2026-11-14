@@ -477,7 +477,14 @@ endpoint id, with a `near`, whom they know near it and near a mark drawn at rand
 from the `peers` they answer with — up to 8 endpoints each, nearest first, the answerer itself
 among them when a stranger may reach it. So each table grows toward the neighbourhood its own
 id falls in and toward one more neighbourhood a tend, and the k nearest a mark converge across
-peers that never shared a table. A leaf does not walk: nobody could answer it.
+peers that never shared a table. And every naming of a mark's custodians is a step of a **lookup**
+for that mark: when the k nearest a peer knows for the mark differ from what it knew when it last
+asked, it asks the two nearest of them, with a `near`, whom they know nearer, and the next naming
+reads their answers — the Kademlia step, spread over beats rather than awaited — until the naming
+stops changing, after which it asks no more for that mark; while the nearest keep changing it asks
+no oftener than every thirty seconds for one mark. A new mark in a settled swarm costs two `near`
+and two `peers`; a mark in a swarm of millions converges in as many steps as the distance halves.
+A leaf neither walks nor seeks: nobody could answer it, and its carrier names its custodians.
 
 9.2 **Custody.** For each cell, the sender asks for the k peers nearest the cell's pigeonhole and
 places the cell at each one it is handed — a `hold` of the mark and the cell, carried through the
@@ -776,16 +783,16 @@ These are decided in direction and not in detail, and a client built today shoul
 - the numbers, with their derivations: k, the tumbler threshold, the beat, the step, the
   retention — each stated here with a default and owed a published formula over the swarm's
   measured size and availability, and a way for a client to learn the swarm's published values;
-- the walk's reach: a peer walks toward its own neighbourhood and one random mark a tend (9.1),
-  which converges a swarm of thousands; a per-mark iterative lookup at placement time — ask the
-  nearest you know, then the nearest they name, until the k nearest stop changing — is owed for
-  a swarm of millions, where no table holds a mark's custodians at the first ask;
+- the lookup's first step in a swarm of millions: a mark's first naming is from a table that
+  does not yet hold its custodians, so the first hold of a new mark lands near rather than at
+  them until the lookup converges (9.1); whether a sender should await the convergence before
+  the first placement, or place again as the naming moves (the beat does), is owed a measured
+  answer;
 - more than one hop, and a tumbler that reaches a destination it cannot route to: today a frame
   whose last tumbler reaches neither the route it carries nor the endpoint is lost, and the
   sender's beat places it again by another tumbler;
 - the one-cell-per-beat claim in the floors: a post places at once, and the slot turning places
   every kept message again;
-- browser support for the web floor over the frames of 9.1;
 - a device set carrying the sender's keeping, so a second device of the same person can deliver
   what the first was carrying;
 - one-time prekeys for forward-secret invitations, and per-message ratcheting;
