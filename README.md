@@ -2,14 +2,15 @@
 
 Convene is a sealed group chat with no server that reads anything: every message is sealed on the
 member's device and delivered to each recipient it is for, membership is sealed too, and the
-relays in between see fixed-size cells and nothing else.
+swarm in between sees fixed-size cells at pairwise marks and nothing else.
 
 Two kinds of specification live here, and they answer different questions.
 
 **The protocol** — what any client, in any language, must do to interoperate:
 
 - [`protocol/transport.md`](protocol/transport.md) — identities, keys, records, sealing, cells,
-  relays, and the flows: founding, proposing and enacting a membership change, rotating, adopting,
+  the swarm — custody, mixing, the cadence, the small-swarm rule — and the flows: founding,
+  proposing and enacting a membership change, rotating, adopting, acknowledging, withdrawing,
   admitting a device, catching up.
 - [`protocol/rendering.md`](protocol/rendering.md) — the content of a message and how a
   conversation is presented: the Markdown dialect, what a line shows, order, and the reserved

@@ -1,6 +1,7 @@
 # Convene transport protocol, version 1
 
-**Status: draft for review, 2026-11-12.** Nothing here is frozen. The reference implementation is
+**Status: draft for review, 2026-11-14** (threads, receipts, withdrawal and the custodial swarm
+added over the 2026-11-12 draft). Nothing here is frozen. The reference implementation is
 the convene tree in `kopilati/nord` (`examples/convene`); the behaviour this protocol realises is
 specified there as DCI drafts, in the vocabulary of the people who own each layer. Where this
 document and those drafts disagree, the drafts are the specification and this document has a
@@ -10,8 +11,8 @@ defect to be fixed.
 
 This document specifies how sealed records move between the members of a convene group: the
 identities and their keys, the records and how they are sealed, the cells they travel in, the
-relays that carry cells, and the rules a client follows to send, collect, catch up, and change a
-group's membership. It is written so that a client can be built from it, in any language, that
+the swarm of peers that carries and holds cells, and the rules a client follows to send,
+acknowledge, withdraw, collect, catch up, and change a group's membership. It is written so that a client can be built from it, in any language, that
 interoperates with the reference implementation and with every other client built from it.
 
 It does not specify what a message says or how it is shown. That is the rendering protocol
@@ -26,18 +27,35 @@ used in derivations are written in backticks and carry no terminator.
 ## 2. The shape of the whole thing
 
 - **Nothing in the middle reads anything.** A sender seals a fresh copy of a record for each
-  recipient and drops it at the recipient's edge. A recipient collects only at its own edge. A
-  relay sees edges and fixed-size cells, nothing else.
-- **Order rides inside the seal.** Every message names the messages it follows. Relays keep no
-  order and refuse nothing. Readers assemble the same timeline from the same records.
+  recipient, cuts it into fixed-size cells, and leaves each cell at a pigeonhole only that pair can
+  name, with the peers nearest it. A recipient asks its own pigeonholes. A peer sees marks and
+  fixed-size cells, nothing else, and nobody in the middle can tell who is talking to whom.
+- **Order rides inside the seal.** Every message names every tip its author had seen; two people
+  writing at once stand as siblings and the next message closes the fork. What a message
+  *answers* is a separate, single, optional pointer that moves nothing in the order and is what a
+  reading quotes. Peers keep no order and refuse nothing. Readers assemble the same timeline from
+  the same records.
+- **Nothing in the swarm acknowledges.** A recipient says what it holds in a receipt, sent on its
+  own cadence; a sender keeps every message of its own until the receipts cover it, and may
+  withdraw a message nobody has yet. A message anyone has received is part of the conversation.
+- **Privacy before availability.** When enough peers are reachable, cells are held in custody
+  and a message reaches a recipient who is away; when too few are, nothing is placed anywhere, the
+  sender carries the cells itself and both must be online at once. One rule, per cell. Every
+  claim below about what an observer cannot tell is conditional on the swarm's size, and a client
+  states which regime it is in.
 - **An identity is a keypair.** Its public key, in base58, is its name, its edge, and what an
   invitation carries. There is no directory and no account.
 - **One identity, many devices.** A device set is a group whose members are devices and whose
   conversation carries the identity's secrets. Chat groups see the identity only.
 - **Membership is governed.** Anyone proposes; the founder or a majority accepts; the proposer
   enacts; anyone rotates. Every epoch has its own key, so access is bounded by epoch.
-- **Delivery is at least once and eventual.** Readers deduplicate by id. A relay keeps a cell for
-  days, not forever; members keep everything they received and serve each other what they missed.
+- **Delivery is at least once and eventual.** Readers deduplicate by id. A custodian keeps a cell
+  for days, not forever; members keep everything they received and serve each other what they
+  missed; and a sender keeps its own until it is acknowledged.
+- **The swarm is asymmetric.** A phone cannot hold a socket open for others or be reached from
+  outside, so phones are leaves: they send, ask and are never custodians or tumblers. Desktops
+  that stay up are peers in full. Public drops are peers like any other, depended on by nobody in
+  particular.
 
 ## 3. Primitives
 
@@ -72,11 +90,13 @@ id is the same, from the device's signing key.
 4.4 **Key id.** The first 16 bytes of SHA-256(`convene/v1/key-id` ‖ key material), in base58. A
 holder of the material can verify it; nobody else learns anything from it.
 
-4.5 **Edge.** The string a recipient registers at a relay and a sender addresses. In v1 an
-identity's edge is its identity id, and a device's edge inside its device set is its device id.
-This is the recorded metadata concession of v1: a relay learns which edges receive and when. A
-later version derives edges pairwise so that they cannot be linked; the relay frames do not change
-for that.
+4.5 **Edge and pigeonhole.** An edge is the string a recipient collects at directly, used only
+when the swarm is too small to hold a cell (9.4); a pigeonhole is the per-cell mark a sender places
+a cell under and a recipient asks for (9.2). In v1 an identity's edge is its identity id, and a
+device's edge inside its device set is its device id. A cell carried to an edge therefore tells
+the tumbler of its last hop which identity it was for — the recorded metadata concession of the
+small-swarm regime, where nothing is in custody anyway; a cell in custody tells nobody anything
+but a mark.
 
 ## 5. Identities, devices and cards
 
@@ -107,10 +127,14 @@ with `sig` the Ed25519 signature `convene/v1/card` over the card without `sig`, 
 signing key. A reader MUST verify `sig` before using any field. A card travels in a card link
 (10.2), a device-admission code (10.6), or sealed inside a revision (6.2).
 
-5.4 **A card link** is `convene://card?c=<base64url CBOR card>&r=<relay url>[&r=...]`. It says
-"this is who I am, and where I can be reached". A link carries no secret and may be shown as a QR
-code, pasted, or printed. A client MUST verify the card's signature before offering the link's
-holder as someone to admit.
+5.4 **A card link** is `convene://card?c=<base64url CBOR card>[&r=<rendezvous>...]`. It says
+"this is who I am, and how to find me". The card's identity id is the holder's name in the swarm;
+each `r` is a rendezvous hint — a peer the holder is known to dial, a public drop, a local name —
+that helps a client find the swarm when it knows no peer yet. Hints are optional, carry no
+authority, and a client MUST NOT depend on any particular one: once it is in the swarm it finds
+custodians by pigeonhole, not by hint. A link carries no secret and may be shown as a QR code,
+pasted, or printed. A client MUST verify the card's signature before offering the link's holder as
+someone to admit.
 
 5.5 **The ring.** A device keeps, sealed at rest under a key the platform holds (a passkey-derived
 key, the Keychain, the Keystore), the identity secrets it holds, its own device secrets, and every
@@ -129,15 +153,26 @@ defined in section 3.
 { "id": <16 bytes>,
   "author": <identity id, 32 bytes>,
   "parents": [ <16 bytes>, ... ],
-  "content": <bytes, as the rendering protocol defines>,
+  "answers": <16 bytes>,                                 optional
+  "content": <bytes, as the rendering protocol defines>, absent in a withdrawal
   "sig": (sig, `convene/v1/message`) }
 ```
 
-`parents` are the ids of the messages the author's device had seen as the tips of the conversation
-when the message was made; empty for a conversation's opening message. A **correction** is a later
-message carrying the same `id` with new content and parents that include the tips at the time of
-the correction; readers keep the causally latest sealing of an id and show it in the place the id
-first appeared. A message id is minted once and never re-minted for a different message.
+`parents` are the ids of **every** tip of the conversation the author's device held when the
+message was made — the frontier, so that two messages written at once are siblings and the next
+message names both; empty for a conversation's opening message. A client MUST name the whole
+frontier it holds, never only the latest line. `answers` is the one message the author meant to
+reply to, if any; it MUST NOT be the message's own id, it MUST be a message the author held, it
+does not affect order, and a reading quotes it when the answered message is not the line directly
+above. A client defaults it to the latest line the person had read when they began to write, and
+lets them choose another.
+
+A **correction** is a later message carrying the same `id` with new content and parents that are
+the frontier at the time of the correction; readers keep the causally latest sealing of an id and
+show it in the place the id first appeared. A **withdrawal** is a correction with no `content`: the
+author taking the words back; readers keep the place as a withdrawn entry so that what followed it
+still follows something (6.7). A message id is minted once and never re-minted for a different
+message.
 
 6.2 **Revision**
 
@@ -246,13 +281,37 @@ envelopes, every revision and every message it holds for the lineage that the re
 list and is entitled to (10.8). Pending proposals and approvals are not served: a proposal is its
 proposer's to re-ask on the epoch that stands.
 
+6.7 **Receipt**
+
+```
+{ "lineage": <16 bytes>,
+  "holder": <identity id, 32 bytes>,
+  "frontier": [ <16 bytes>, ... ],
+  "sig": (sig, `convene/v1/receipt`) }
+```
+
+A holder's word for what it holds: `frontier` is the ids of the newest messages it holds for the
+lineage, those no message it holds follows. A receipt **covers** a message when the message is in
+the frontier or is an ancestor of one; one receipt therefore acknowledges everything up to a
+point. A client sends a receipt on its cadence (9.6), never at the moment of arrival, to every
+member of the current epoch, its own inbox among them, and MUST NOT send one whose frontier is
+empty. A sender reads receipts against its own messages: a message covered by every other member's
+receipt is **received**; by some, **partly**; by none, **queued**.
+
+**Withdrawal and receipts.** A client MUST refuse to withdraw a message any receipt covers. A
+receipt that arrives after a withdrawal and covers the message means someone had the words: the
+author's device MUST then **restore** it — send the same `id` again with the pre-withdrawal
+content and the current frontier as parents — so that everyone, those who got the withdrawal
+included, reads what was in fact received. A withdrawn message nobody ever covered leaves no
+trace for anyone.
+
 ## 7. Sealing and envelopes
 
 7.1 **An envelope** is what one record becomes on its way to one recipient:
 
 ```
 { "v": 1,
-  "kind": "message" | "revision" | "proposal" | "approval" | "catchup",
+  "kind": "message" | "revision" | "proposal" | "approval" | "catchup" | "receipt",
   "key": <key id>,
   "nonce": <24 bytes>,
   "ct": <bytes> }
@@ -266,14 +325,15 @@ HPKE ciphertext of 6.5, not a sealing under an epoch key.
 7.2 **Which key.** A message is sealed under the current epoch's key of its lineage at the moment
 of sending. A revision is sealed under the key of the epoch it begins. A proposal or approval is
 sealed under the key of the epoch it stands on. A catch-up request is sealed under the key of the
-newest epoch the requester holds for the lineage.
+newest epoch the requester holds for the lineage. A receipt is sealed under the current epoch's
+key of its lineage.
 
 7.3 **Per-recipient copies.** The sender seals the same record afresh for each recipient, with a
 fresh nonce, so that no two recipients hold the same bytes. The sender's own copy is a recipient's
 copy like any other: a sender's own inbox is where its own record lives.
 
 7.4 **What a reader does with an envelope it cannot open** — a key it does not hold, or an
-authentication failure — is nothing. It is noise on a public dead drop, dropped without an alarm.
+authentication failure — is nothing. It is noise at a pigeonhole, dropped without an alarm.
 An envelope that opens but whose record fails its own checks (a bad signature, a revision that
 names the reader in no member list it should, a warrant that does not carry) is evidence, and
 section 10.5 says what evidence raises.
@@ -304,11 +364,16 @@ the key.
 | 22 | 1024 | the chunk, zero-padded past `length` |
 | 1046 | 10 | reserved, zero |
 
-8.2 **Keys.** For an envelope sealed under an epoch key *K*: cell key = HKDF-SHA256(ikm = *K*,
-salt = empty, info = `convene/v1/cell`), detect key = HKDF-SHA256(*K*, empty, `convene/v1/detect`).
-Every holder of the epoch key can therefore recognise and open every member's cells of that
-epoch; the per-recipient fan-out buys unlinkability of copies, not secrecy among members, and the
-drafts say so.
+8.2 **Keys.** Cells are keyed **per pair**, not per epoch. For a sender *S* and a recipient *R*,
+the pair secret *P* = HKDF-SHA256(ikm = X25519(*S*'s agreement private key, *R*'s agreement
+public key), salt = empty, info = `convene/v1/pair` ‖ min(*S* id, *R* id) ‖ max(*S* id, *R* id)) —
+the same from either side. Then cell key = HKDF-SHA256(*P*, empty, `convene/v1/cell`), detect key
+= HKDF-SHA256(*P*, empty, `convene/v1/detect`), and the pigeonhole of slot *t* and index *i* is
+base58 of HKDF-SHA256(*P*, empty, `convene/v1/pigeonhole` ‖ *t* ‖ *i* as 2 bytes)[0..16]. Only the
+two of them can recognise, open, or name the places of their cells; another member of the same
+epoch cannot. (The 2026-11-12 draft keyed cells per epoch; that is withdrawn, and the drafts'
+`SealKey` is now the pair's material.) *Slot* is the UTC hour, written `YYYY-MM-DDTHH`; a sender
+numbers its cells to one recipient within a slot from 0.
 
 For a wrapped key (6.5), the recipient shares no epoch key with the sender yet. Its cells use the
 recipient's **hail keys**: cell key = HKDF-SHA256(ikm = recipient id bytes, empty, `convene/v1/hail-cell`),
@@ -322,75 +387,91 @@ number of chunks, at most 64 in v1 (an envelope of at most 64 KiB; the rendering
 content well under that). The reassembled envelope is the concatenation of the chunks' payloads,
 each cut at its `length`.
 
-8.4 **Collection.** For each cell at its edge, a device tests the tag against every detect key it
-holds — one per epoch key in its ring, plus its hail detect keys — and unseals a match with the
-matching cell key. It groups opened contents by reassembly id, reassembles each group whose every
+8.4 **Collection.** On every beat (9.6) a device asks, for every pair secret it holds, the
+pigeonholes of the current slot and the previous one at indices 0 to *breadth*−1, and asks its own
+edge; for each cell that comes back it tests the tag against every detect key it holds — one per
+pair, plus its hail detect keys — and unseals a match with the matching cell key. It groups opened contents by reassembly id, reassembles each group whose every
 index from 0 to count−1 is present, and hands the envelope to section 7. Cells that match nothing
 are discarded untried. An incomplete group waits for a later collection and is discarded after
 7 days.
 
-8.5 **Hops.** Reserved for the mixing transport the drafts specify (`mix/`): a cell with hops
-above zero is forwarded, one hop fewer, through a pool of tumblers that batch and reorder. The
-hops byte is outside the AEAD so that a tumbler can spend a hop without the key; a wrong hop
-count misroutes a cell and reveals nothing. A v1
-client sets hops to 0 and a v1 relay ignores the field. The layout is fixed now so that v1 cells
-and mixed cells are indistinguishable on the wire when the mix arrives.
+8.5 **Hops.** Every cell — placed, carried or looped — travels through the tumblers (9.3): a cell
+with hops above zero is forwarded, one hop fewer, through a pool of peers that batch and reorder.
+The hops byte is outside the AEAD so that a tumbler can spend a hop without the key; a wrong hop
+count misroutes a cell and reveals nothing. A client sets hops to the swarm's configured depth,
+3 unless the swarm says otherwise; a cell that arrives at a custodian or an edge with hops above
+zero is still held.
 
-## 9. The dead-drop relay
+## 9. The swarm
 
-A relay is a mailbox per edge. It holds cells for an edge nobody attends, hands them over when
-someone does, and forgets them. It reads nothing, orders nothing across edges, acknowledges
-nothing, and trusts nobody, including other relays.
+There is no relay. There is a swarm of peers, each of which may mix cells, hold cells for
+pigeonholes it is nearest, and answer who is nearest a mark; a device that cannot stay up is a leaf
+that uses the swarm without being part of it. No peer is trusted, no peer acknowledges anything,
+and no peer is asked who a pigeonhole belongs to.
 
-9.1 **Transport.** WebSocket (RFC 6455), `wss://` across the public network, `ws://` permitted on
-a local network between native clients. Any path. Each WebSocket text frame carries exactly one
-JSON object. A cell rides as a base64url string without padding.
+9.1 **Peers and discovery.** A peer is named by its identity id and reached through the
+peer-to-peer transport the implementation binds (iroh or libp2p; the drafts name the seam `Wire`).
+Peers keep a Kademlia-style table keyed by the 16-byte prefix of SHA-256 of a peer id or a
+pigeonhole, and answer two questions: *how many peers are reachable* and *which k reachable peers
+are nearest this mark*. The drafts name this seam `Discovery`. A device joins by dialing any
+peer it knows — a rendezvous hint from a card, a public drop, a peer on the local network — and
+announces itself; a leaf announces nothing. A peer MUST NOT answer a nearness question with peers
+it has not heard from within 10 minutes.
 
-9.2 **Frames**
+9.2 **Custody.** For each cell, the sender asks for the k peers nearest the cell's pigeonhole.
+When it is handed k, it places the cell at each of them (a `hold` of the mark and the cell,
+carried through the tumblers like any cell), and the cell is out of its hands. A custodian keeps a
+cell under its mark for at least 24 hours and SHOULD keep it for 7 days, hands a **copy** to
+whoever asks for the mark, and periodically asks who the mark's custodians are now and places the
+cell at any of them that lacks it, so that a peer leaving does not take the only copies with it. A
+custodian MAY refuse, silently, beyond a limit its operator publishes. **k is 5** unless the
+swarm's operators publish another value with its derivation.
 
-| frame | direction | meaning |
-|---|---|---|
-| `{"register": <edge>, "at": <unix seconds>, "proof": <b64>}` | client → relay | Attend the edge. `proof` is base64url of the Ed25519 signature over `convene/v1/register` ‖ edge (as its UTF-8 text) ‖ `at` (8 bytes), by the key whose base58 public key is the edge. Everything waiting flushes as separate `cell` frames, in arrival order; later cells for the edge are handed straight over. A later registrant displaces an earlier one. |
-| `{"to": <edge>, "cell": <b64>}` | client → relay | Leave a cell for an edge. Handed at once if the edge is attended, otherwise kept. |
-| `{"cell": <b64>}` | relay → client | A delivery. A flush and a live hand-over are indistinguishable. |
-| `{"relayed": {"to": <edge>, "cell": <b64>}}` | relay → relay | A cell a fellow relay passes on. Kept exactly as a client's would be, and passed no further. |
+9.3 **Mixing.** Every peer is a tumbler. A cell that arrives with hops above zero is held with
+others until the peer has gathered its batch threshold, then the whole batch leaves at once,
+reordered, each cell one hop shorter, each toward a fresh peer; the last hop delivers to the
+custodian or the edge the cell was for. The threshold is 8 cells or 5 seconds, whichever comes
+first, unless the swarm publishes otherwise. A recipient's ask for a pigeonhole travels the same
+way, so a custodian sees a tumbler asking, never the recipient.
 
-9.3 **Rules.** A relay MUST ignore, silently, a `register` whose proof does not verify or whose
-`at` differs from the relay's clock by more than 300 seconds; it MUST ignore any frame it cannot
-parse, any frame with an empty edge or cell, and any cell that is not exactly 1129 bytes once
-decoded. A relay MUST NOT acknowledge anything, and MUST NOT reorder the cells it holds for one
-edge. Registering is idempotent: registering again from the same socket flushes whatever has arrived
-since and keeps the attendance.
+9.4 **The small swarm.** When a sender is handed fewer than k custodians for a cell, the swarm is
+too small to trust with it and **privacy wins over availability**: the cell MUST NOT be placed
+anywhere — not at the few, not at a public drop. The sender carries the cell toward the
+recipient's edge through the tumblers, which reaches the recipient only while it is online, and
+keeps the cell to carry again on every beat until the message it belongs to is acknowledged or
+withdrawn. In this regime both parties must be online at once, and the sender's own device is the
+only place the message exists until then. A client MUST tell the person which regime a message is
+in (10.10). Fewer than k peers also means the mixing of 9.3 hides little; the honest claim in a
+small swarm is sealed content, not unlinkability, and a client MUST NOT present it as more.
 
-9.4 **Retention and limits.** A relay MUST keep an unclaimed cell for at least 24 hours and SHOULD
-keep it for 7 days. A relay MAY refuse, silently, cells beyond a per-edge or total limit it
-publishes to its operator; it SHOULD hold at least 4096 cells per edge. A relay restart MAY start
-empty; members' own holdings and catch-up are what recover loss.
+9.5 **Public drops.** A public drop is a peer anyone may run and nobody need trust: it mixes,
+holds and answers like any other, and a card may name it as a rendezvous hint. Nothing in this
+protocol depends on any particular drop existing. The 2026-11-12 dead-drop frames (`register`,
+`to`/`cell`, `cell`, `relayed`) are withdrawn as a protocol surface; an implementation MAY keep
+them as a transport for leaves that cannot speak the peer-to-peer transport, in which case the
+peer they speak to is their tumbler of entry and nothing more.
 
-9.5 **Fellowship.** A relay MAY keep company with other relays. A cell nobody attended at this
-relay is passed on to each fellow as a `relayed` frame, a copy and never a move; a cell that
-arrived as `relayed` is passed no further. Whom a relay keeps company with is its operator's
-configuration. Delivery across a fellowship is therefore at least once, and a client may be
-handed the same cell by two relays.
+9.6 **The cadence.** Every device keeps a beat, 3 seconds unless configured otherwise, and on
+every beat does exactly two things, whether or not it has anything to say or expect: it sends
+**one** cell — the oldest cell it is still carrying (9.4), else the oldest it has not yet placed,
+else a **loop cell**: a cell sealed under a key only it holds, bound for one of its own
+pigeonholes, that only it will recognise when it comes back — and it asks the pigeonholes of 8.4.
+Receipts (6.7) go out as ordinary cells on the beat, never at the moment of arrival. A device
+MUST NOT send more than one cell per beat, MUST NOT skip the ask on a beat, and MUST NOT vary the
+breadth; the beat is what makes a retry, a receipt and a poll indistinguishable from silence. The
+breadth is 4 per pair per slot unless configured otherwise.
 
-9.6 **Client behaviour.** A client holds a set of relay URLs: its own configuration, plus the
-relays named in the card links of everyone it has admitted or been admitted by. It shuffles the
-set and dials until one answers, registers each edge it attends, and **re-registers every 60
-seconds** while connected: registering is idempotent, and it is how a device displaced by a
-sibling regains attendance once the sibling has gone. A client reconnects with backoff when the
-socket goes, keeps an outbox for cells it could not send, and sends them on reconnection. A
-client SHOULD register at more than one relay when the relays are not known to keep company,
-because fellowship is one hop and a cell left at a relay that keeps company with nobody waits
-there alone.
-
-9.7 **What the relay learns.** Which edges are attended, from which addresses, when; which edges
-receive cells, how many, when. Cells are fixed-size, so nothing about content, grouping, sender,
-or lineage. A relay that lies can delay, lose, duplicate or invent cells, and a client already
-lives with all four.
+9.7 **What a peer learns.** As a tumbler: cells in, a shuffled batch out, from and to peers. As a
+custodian: that a mark was written, from a tumbler; that a mark was asked for, from a tumbler;
+when; and that every cell is 1129 bytes. Never a pair, a lineage, a sender or a recipient, and
+never whether a device had anything to say. A peer that lies can delay, lose, duplicate or invent
+cells, and a client already lives with all four; a peer that drops what it was given to hold is
+why k is more than one and members keep what they received.
 
 ## 10. Flows
 
-Every flow below is a client's own doing. No step asks a relay anything, and no relay answers.
+Every flow below is a client's own doing. No step asks a peer anything but nearness, and no peer
+answers anything else.
 
 10.1 **Founding.** A device holding an identity mints a lineage: a fresh epoch key, a founding
 revision (6.2) with the identity as sole member, creator and founder, sealed under the new key
@@ -400,7 +481,10 @@ group.
 10.2 **Meeting someone.** Identities exchange card links (5.4) outside the protocol: shown as a QR
 code and scanned, read over a call, pasted. A client MUST verify the card's signature and SHOULD
 let the person compare a short fingerprint of the signing key with the card's holder when the link
-did not arrive screen to camera. The card is what an admission proposal names.
+did not arrive screen to camera. The card is what an admission proposal names. Starting a chat with
+someone is one gesture: the client founds the lineage, waits for its own founding to come back,
+proposes the admission, and enacts it as soon as it carries — the founder's at once, a member's
+when the others have approved. A client MUST NOT ask the person to enact.
 
 10.3 **Proposing, approving, enacting, rotating.** As the drafts specify:
 
@@ -451,8 +535,8 @@ settle on the other successor. The author's client, on seeing its epoch voided, 
 message again under the standing epoch, with the same message id.
 
 10.6 **Admitting a device.** The new device mints its device keypairs and a presence keypair and
-shows a device-admission code: a card link (5.4) whose card is a device card, with the relays the
-device will attend. An existing device of the set scans it and proposes the admission, with
+shows a device-admission code: a card link (5.4) whose card is a device card, with the rendezvous
+hints the device knows. An existing device of the set scans it and proposes the admission, with
 `presence` signed by its own presence key; the set's founding device may enact at once on its own
 word, any other device needs the majority of the set's devices, the admitted device not counted.
 Enacting wraps the set's new epoch key **and the identity's secrets** to the new device
@@ -466,10 +550,11 @@ evicted device not counted, enacted by its proposer. The remaining devices rotat
 the identity belongs to. A device that cannot produce a presence signature cannot propose or
 approve an eviction or an admission, which is the point.
 
-10.8 **Catching up.** A device that may have missed deliveries — it was off, its relay expired a
-mailbox, it was just admitted — drops a catch-up request (6.6), sealed under the newest epoch key it holds for the lineage, at the
+10.8 **Catching up.** A device that may have missed deliveries — it was off longer than custody keeps a cell,
+it was just admitted — drops a catch-up request (6.6), sealed under the newest epoch key it holds for the lineage, at the
 edge of every current member of the lineage, its own among them. Every holder answers and the
-requester's fold discards the duplicates. A responder MUST verify the request's signature against
+requester's fold discards the duplicates. A device that comes back after a custodian's retention
+has passed catches up this way: custody covers days, members cover the rest. A responder MUST verify the request's signature against
 a card the lineage's chain holds, and MUST then drop at the requester's edge every revision it
 holds of an epoch the requester was a member of that the request did not list, and every message
 it holds sealed under such an epoch whose id the request did not list. A responder MUST NOT
@@ -483,6 +568,24 @@ requester per minute.
 revision it is not in, seals it under a key it then discards, delivers to the remaining members,
 and keeps every key it held from before: what it could already read, it can still read.
 
+10.10 **Sending, and what the person sees.** A sender composes a message with the whole frontier
+as parents (6.1) and the chosen answer, seals a copy per member, cuts each copy into cells, and
+for each cell either places it (9.2) or keeps and carries it (9.4). It then keeps the message
+until receipts cover it. The person sees one of three states on their own line: **queued** while
+no member's receipt covers it, **partly** with the names that have, **received** when every member
+has. A queued message in the small swarm is shown with the words "delivered when <name> is next
+online"; a placed message needs no words. **Withdraw** is offered only on a queued message; it
+sends the withdrawal (6.1) to every member, tells the transport to let go of every cell of the
+message still carried or not yet placed, and removes the message from the sender's reading. A
+receipt that later covers it restores it (6.7) and the client says so in one line. A withdrawn
+message leaves no trace for the sender.
+
+10.11 **Acknowledging.** On its beat, a device that holds any message for a lineage sends a
+receipt (6.7) naming its frontier to every current member of the lineage. A device MUST send a
+receipt at least once per slot in which it holds something new, and MUST NOT send one more often
+than its beat allows. A sender that reads a receipt covering one of its messages tells its
+transport that the copy to that member is delivered, so nothing of it is carried further.
+
 ## 11. What a client keeps
 
 - Every envelope it received, for every lineage it is in, keyed by lineage and id, for as long as
@@ -490,8 +593,14 @@ and keeps every key it held from before: what it could already read, it can stil
   discards history cannot serve it.
 - Its ring (5.5), sealed at rest.
 - The assembled chain per lineage, which it may recompute at any time from the revisions.
-- Its outbox: records sealed but not yet handed to a relay, retried until they are.
+- Its own messages not yet covered by every member's receipt, with each member's state, and
+  the pre-withdrawal content of anything it withdrew, in case a receipt restores it.
+- Its keeping: the cells it still carries (9.4) or has not yet placed (9.2), each with its
+  pigeonhole, the recipient's edge and the message it belongs to, so a withdrawal can let a
+  message's cells go together.
+- The receipts it has opened per lineage, by holder.
 - For deduplication: the message ids it has seen per lineage, with the latest sealing of each.
+- A key only it holds, for its loop cells (9.6).
 
 ## 12. Security and metadata considerations
 
@@ -506,10 +615,13 @@ and keeps every key it held from before: what it could already read, it can stil
   proposals and approvals by their makers, and a reader verifies against the cards the chain
   holds. Who a card belongs to in the world is settled when cards are exchanged (10.2), not by
   this protocol.
-- **Metadata.** A relay learns edges, timing and counts (9.7). In v1 an edge is an identity id,
-  so a relay can tell which identities receive and when, and can link an identity's traffic across
-  time. Fixed-size cells hide sizes and grouping. Pairwise edges and the mixing transport are the
-  two later evolutions that close this; both keep the frames of section 9.
+- **Metadata.** A custodian learns that a mark was written and asked for, by a tumbler, when
+  (9.7); a tumbler learns cells in and a batch out. Pigeonholes are pairwise and per cell, so
+  nothing a peer sees links two cells, a cell to a pair, or a pair to a time; the beat (9.6) makes
+  a device's traffic constant whether or not it has anything to say. **All of this is conditional
+  on the swarm's size**: with fewer than k peers nothing is in custody and mixing hides little, and
+  a client MUST say so rather than claim unlinkability it does not have. Discovery publishes which
+  peer ids are reachable from which addresses; a leaf publishes nothing.
 - **Replay.** Message ids deduplicate; approvals bind to a proposal id; proposals bind to a parent
   revision and are void once it moves; a `register` carries a time and a signature.
 - **Downgrade.** `v` is inside every envelope's AAD and every card's signature; a reader MUST
@@ -517,8 +629,13 @@ and keeps every key it held from before: what it could already read, it can stil
 - **A stolen device** can read what its ring holds. It cannot admit or evict a device without a
   presence signature, and its own eviction by a sibling, followed by rotation, ends its reading
   from that epoch on. An identity whose every device is lost has no recovery in v1.
-- **A hostile relay** can delay, lose, duplicate or invent cells and can refuse an edge. Clients
-  register at more than one relay and members serve each other by catch-up.
+- **A hostile peer** can delay, lose, duplicate or invent cells, drop what it holds, and answer
+  nearness falsely. k custodians, re-placement among them, the sender's own keeping until a
+  receipt, and members' catch-up are the four answers; none of them trusts the peer.
+- **Receipts and withdrawal.** A receipt is signed and sealed, so nobody can forge "received" for
+  a message; a withdrawal is a signed correction, so nobody can withdraw another's words; and a
+  message anyone received cannot be withdrawn, so the record a recipient holds is never silently
+  rewritten against them.
 
 ## 13. Versioning
 
@@ -531,10 +648,15 @@ bytes are zero and a reader ignores them.
 
 These are decided in direction and not in detail, and a client built today should expect them:
 
-- the mixing transport (`mix/` in the drafts): tumblers, hops above zero, cover traffic;
-- pairwise-derived edges, so an identity's traffic cannot be linked at a relay;
+- the numbers, with their derivations: k, the tumbler threshold, the beat, the breadth, the
+  retention — each stated here with a default and owed a published formula over the swarm's
+  measured size and availability, and a way for a client to learn the swarm's published values;
+- the peer-to-peer binding (iroh or libp2p), browser support for the web floor, and whether a
+  leaf that cannot speak it keeps the withdrawn dead-drop frames as its way in;
+- a device set carrying the sender's keeping, so a second device of the same person can deliver
+  what the first was carrying;
 - one-time prekeys for forward-secret invitations, and per-message ratcheting;
 - re-keying an identity after suspected compromise, and recovery when every device is lost;
-- the exact form of a relay operator's limits and how a client learns them;
+- a custodian's and a tumbler's limits and how a client learns them;
 - test vectors for every record, envelope and cell, to be published with the reference
   implementation.

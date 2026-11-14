@@ -30,7 +30,6 @@ deterministic encoding with text-string keys; unknown keys are ignored on read.
 ```
 { "v": 1,
   "at": <unix milliseconds>,            optional: when the author composed it, the author's claim
-  "re": <16 bytes>,                     optional: the message this one answers, for presentation
   "parts": [ <part>, ... ] }
 ```
 
@@ -41,8 +40,10 @@ A message MUST carry at least one part. Version 1 defines one part type:
 { "type": "text/markdown", "text": <text> }
 ```
 
-Reserved types, defined in section 7 and not to be sent by a v1 client: `image/*`, `video/*`, and
-`application/x-convene-retraction`.
+Reserved types, defined in section 7 and not to be sent by a v1 client: `image/*` and `video/*`.
+(The 2026-11-12 draft carried `re`, the message this one answers, and a retraction part type;
+both are withdrawn. What a message answers is the transport record's `answers` (transport 6.1),
+and a withdrawal is a correction with no content (transport 6.1). A reader ignores a `re` key.)
 
 **Rules for every client, every version.**
 
@@ -51,8 +52,11 @@ Reserved types, defined in section 7 and not to be sent by a v1 client: `image/*
   one of its parts is unknown, and MUST NOT hide that a part exists.
 - `at` is the author's claim and is shown as such. The transport carries no clock; a client MUST
   NOT reorder messages by `at`. Order comes from the transport's timeline fold (section 5).
-- `re` is presentation only: a client MAY show the answered message's first line above this one.
-  Causal order still comes from the message's parents, which the transport owns.
+- What a message answers comes from the transport (`answers`, transport 6.1). A client shows a
+  quote — the answered message's speaker and opening words — above a line **only when** the
+  answered message is not the line directly above it, so the ordinary back-and-forth carries no
+  quotes and a fork shows exactly where it is; a client MUST NOT show a quote for a message it
+  does not hold. Causal order still comes from the message's parents, which the transport owns.
 - Content size: the CBOR of `content` MUST NOT exceed 32,768 bytes in v1, and the `text` of a
   text part MUST NOT exceed 16,384 bytes of UTF-8. A client's composer refuses longer text; a
   client that receives longer content shows it truncated with a visible mark.
@@ -123,21 +127,29 @@ clear it is local.
 
 ## 5. Order
 
-Order is the transport's: a message stands after every message it names as a parent; messages
-that are concurrent — neither names the other, directly or through others — stand in the order
-their ids sort (transport 4.1), so every member reads the same sequence; a correction stands
-where the id first appeared; an id is shown once however many copies arrived. A client MUST NOT
-sort by `at`, by arrival, or by any clock of its own. A client MAY show `at` beside a line.
+Order is the transport's: a message stands after every message it names as a parent — and it
+names every tip its author held, so two people writing at once are siblings and the next message
+closes the fork; messages that are concurrent — neither names the other, directly or through
+others — stand in the order their ids sort (transport 4.1), so every member reads the same
+sequence; a correction stands where the id first appeared; a withdrawn message keeps its place as
+a withdrawn line; an id is shown once however many copies arrived. What a message answers never
+moves it. A client MUST NOT sort by `at`, by arrival, by what a message answers, or by any clock
+of its own. A client MAY show `at` beside a line. A client presents the conversation as one
+sequence with quotes at the forks, not as a tree, not as threads that open sideways.
 
 ## 6. Reading state and receipts
 
-Version 1 carries no read receipts and no delivery receipts, and a client MUST NOT infer either
-from the transport. A client MAY keep local reading state (what the person has seen on this
-device) and MAY share it between the devices of one identity through the device set; it MUST NOT
-send it to other members. A later version may define receipts as a content part; a group's
-members will opt in.
+The transport carries **receipts** (transport 6.7): a member's signed word for what it holds,
+sent on the member's cadence. A client shows, on the reader's own lines only, how far the words
+got — **queued** while no member's receipt covers the message, **partly** with the names of those
+whose receipts do, **received** when every other member's does — and offers **withdraw** only on
+a queued line (transport 10.10). A receipt says that a device holds the message, not that a
+person has read it: version 1 carries no read receipts, and a client MUST NOT present a receipt
+as one. A client MAY keep local reading state (what the person has seen on this device) and MAY
+share it between the devices of one identity through the device set; it MUST NOT send it to other
+members.
 
-## 7. Reserved: images, video, retraction
+## 7. Reserved: images and video; withdrawal
 
 These part types are defined in direction so that a v1 client shows the right placeholder and a
 later client sends the right thing. They are not to be sent by a v1 client.
@@ -164,11 +176,14 @@ video automatically and MUST NOT fetch anything from outside the protocol to ren
 Limits will be set with the v2 transport; the working figures are 8 MiB for an image and 64 MiB
 for a video.
 
-7.2 **Retraction.** `{ "type": "application/x-convene-retraction" }` as the sole part of a
-correction (a later sealing of the same message id) withdraws the message. A client shows a
-withdrawn line in the message's place, saying that it was withdrawn, and shows no earlier
-content. A retraction that arrives before the message it withdraws stands as a withdrawn line
-from the start.
+7.2 **Withdrawal.** A correction (a later sealing of the same message id) with no `content`
+withdraws the message (transport 6.1). A client shows a withdrawn line in the message's place —
+the place kept, no words, and nothing of the earlier content — for every reader but the author,
+whose own reading drops the line; a withdrawal that arrives before the message it withdraws
+stands as a withdrawn line from the start. A message any member's receipt covers cannot be
+withdrawn; one restored after a late receipt (transport 6.7) returns to its place with its
+words, and the author's client says in one line that it was received before it could be taken
+back.
 
 ## 8. Versioning
 
