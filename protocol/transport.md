@@ -379,8 +379,10 @@ For a wrapped key (6.5), the recipient shares no epoch key with the sender yet. 
 recipient's **hail keys**: cell key = HKDF-SHA256(ikm = recipient id bytes, empty, `convene/v1/hail-cell`),
 detect key = HKDF-SHA256(recipient id bytes, empty, `convene/v1/hail-detect`). The hail keys are
 public by construction; what protects a wrapped key is the HPKE inside it. A hail cell's content
-MUST be a wrapped-key envelope and nothing else; a recipient MUST drop a hail cell that opens to
-anything else.
+MUST be a wrapped-key envelope or the revision that key opens — a stranger cannot name the pair
+until it has read who invited it — and nothing else; a recipient MUST drop a hail cell that opens
+to anything else, and MUST, once it holds the revision, derive the pair secret with the inviter
+and collect under it from then on.
 
 8.3 **Chunking.** The envelope's deterministic CBOR is split into 1024-byte chunks; `count` is the
 number of chunks, at most 64 in v1 (an envelope of at most 64 KiB; the rendering protocol bounds
@@ -391,9 +393,11 @@ each cut at its `length`.
 pigeonholes of the current slot and the previous one at indices 0 to *breadth*−1, and asks its own
 edge; for each cell that comes back it tests the tag against every detect key it holds — one per
 pair, plus its hail detect keys — and unseals a match with the matching cell key. It groups opened contents by reassembly id, reassembles each group whose every
-index from 0 to count−1 is present, and hands the envelope to section 7. Cells that match nothing
-are discarded untried. An incomplete group waits for a later collection and is discarded after
-7 days.
+index from 0 to count−1 is present, and hands the envelope to section 7. A cell that matches nothing
+is kept aside, bounded, and tried again on each later collection: a seat learns whom it shares a
+pair secret with from the records that arrive beside the first ones, and a device that restarts
+replays what it holds before it has re-learned anyone. A cell still unmatched after 7 days is
+discarded, as is an incomplete group.
 
 8.5 **Hops.** Every cell — placed, carried or looped — travels through the tumblers (9.3): a cell
 with hops above zero is forwarded, one hop fewer, through a pool of peers that batch and reorder.
@@ -456,7 +460,9 @@ every beat does exactly two things, whether or not it has anything to say or exp
 **one** cell — the oldest cell it is still carrying (9.4), else the oldest it has not yet placed,
 else a **loop cell**: a cell sealed under a key only it holds, bound for one of its own
 pigeonholes, that only it will recognise when it comes back — and it asks the pigeonholes of 8.4.
-Receipts (6.7) go out as ordinary cells on the beat, never at the moment of arrival. A device
+Receipts (6.7) go out as ordinary cells on the beat, never at the moment of arrival. A loop that
+comes back is recognised by its key and is not kept at rest; a cell handed over twice is kept
+once. A device
 MUST NOT send more than one cell per beat, MUST NOT skip the ask on a beat, and MUST NOT vary the
 breadth; the beat is what makes a retry, a receipt and a poll indistinguishable from silence. The
 breadth is 4 per pair per slot unless configured otherwise.
