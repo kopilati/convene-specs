@@ -53,6 +53,11 @@ used in derivations are written in backticks and carry no terminator.
 - **Delivery is at least once and eventual.** Readers deduplicate by id. A custodian keeps a cell
   for days, not forever; members keep everything they received and serve each other what they
   missed; and a sender keeps its own until it is acknowledged.
+- **A connection is for what the beat is too slow for.** Two endpoints may open a two-way
+  channel with a key of its own and a path per direction, each direction's sender choosing how
+  many tumblers its frames pass, never fewer than the other side requires, and each side saying
+  whether it may be dialled directly, through peers it names, or only at its pigeonhole — and
+  changing its mind mid-connection. Chat needs none of it; a request-and-answer layer rides on it.
 - **Every device runs the same mechanics; what differs is reachability.** A desktop that stays
   up is a peer in full: reached directly, holding for others, mixing. A phone cannot be reached
   from outside and announces nothing, so only the peers that know it by its card name it as a
@@ -466,9 +471,9 @@ a device needs is always learned from a record it can already open.
 8.5 **Hops.** Every cell — placed, carried or looped — travels through the tumblers (9.3): a cell
 with hops above zero is forwarded, one hop fewer, through a pool of peers that batch and reorder.
 The hops byte is outside the AEAD so that a tumbler can spend a hop without the key; a wrong hop
-count misroutes a cell and reveals nothing. A client sets hops to the swarm's configured depth,
-3 unless the swarm says otherwise; a cell that arrives at a custodian or an edge with hops above
-zero is still held.
+count misroutes a cell and reveals nothing. A client sets hops to the depth of the path it
+chooses (13.3): one, as 9.3 says, unless it chooses more or the recipient's reach (13.2)
+requires more; a cell that arrives at a custodian or an edge with hops above zero is still held.
 
 ## 9. The swarm
 
@@ -487,7 +492,7 @@ only through a card or a hello, so a table of endpoints can be shared without sa
 whom, and a stranger can hold for a stranger. The reference binding is iroh; the drafts name the
 seam `Wire`. Between peers in full, frames travel one per unidirectional QUIC stream under the
 ALPN `convene/frames/1`; to and from a leaf they travel in a dead drop's `to`/`cell` frames
-(9.5). A frame is unit-separated text, and there are eight:
+(9.5). A frame is unit-separated text, and there are eleven:
 
 | frame | meaning |
 |---|---|
@@ -499,6 +504,9 @@ ALPN `convene/frames/1`; to and from a leaf they travel in a dead drop's `to`/`c
 | `via ␟ hops ␟ endpoint ␟ route ␟ inner` | mix `inner` and send it on toward the endpoint at that route (9.3); with no endpoint, on toward the custodians you name for the marks inside — a leaf's way in (9.4) |
 | `to ␟ token ␟ inner` | hand `inner` to whoever asked with this token (9.3) |
 | `near ␟ route ␟ target` | hand `route` the endpoints you know nearest `target`, as a `peers` (9.1) |
+| `carry ␟ endpoint ␟ inner` | hand `inner` to the endpoint, whose route you know from its hello — an entry's way on (13.3) |
+| `open ␟ cid ␟ sealed` | open the connection `cid` with me: sealed to your agreement key (13.4) |
+| `cx ␟ cid ␟ seq ␟ sealed` | frame `seq` of the connection `cid`, under its key (13.5) |
 
 `reply` is `<endpoint>@<route>`, or `<tumbler endpoint>/<token>@<tumbler route>` when the ask
 came through a tumbler. A frame carries the route of whoever is to receive it next and of whoever
@@ -555,8 +563,9 @@ silently, beyond a limit its operator publishes. **k is 5** unless the
 swarm's operators publish another value with its derivation.
 
 9.3 **Mixing.** Every peer is a tumbler, and every frame to another peer — a `hold`, an `ask`,
-a `held` — travels `via` one: the sender picks a reachable peer at random, which may be the
-destination itself, and hands it the frame with one hop to spend. A frame that arrives with hops
+a `held`, an `open`, a `cx` — travels `via` one: the sender picks a reachable peer at random,
+which may be the destination itself, and hands it the frame with one hop to spend, or as many
+as the path it chose has (13.3). A frame that arrives with hops
 above zero is held with others until the tumbler has gathered its batch, then the whole batch
 leaves at once, reordered, each frame one hop shorter, each toward a fresh peer; the last hop
 delivers to the endpoint the frame names, at the route it carries. **How a tumbler withholds is
@@ -567,8 +576,8 @@ same way: the tumbler keeps the asker's route under a token the asker chose — 
 custodian within an hour, so a custodian can tell a repeated ask from a new one without learning
 who asks — rewrites the ask's reply to its own endpoint and that token, and hands the custodian's
 `held` answers back through `to`. A custodian sees a tumbler asking, never the recipient. A
-hello, a table, a `near` and a `to` go straight, not via: they are about routes, not about
-anyone's words.
+hello, a table, a `near`, a `to` and a `carry` go straight, not via: they are about routes, not
+about anyone's words.
 
 A **leaf** cannot place or ask for itself beyond the peers in full it knows: the custodians a
 mark falls to are endpoints it never learns, since it is in no shared table and answers no
@@ -813,19 +822,138 @@ transport that the copy to that member is delivered, so nothing of it is carried
 - **A hostile peer** can delay, lose, duplicate or invent cells, drop what it holds, and answer
   nearness falsely. k custodians, re-placement among them, the sender's own keeping until a
   receipt, and members' catch-up are the four answers; none of them trusts the peer.
+- **Connections** (13) are forward secret on their own: the key is derived from ephemerals the
+  two ends discard, so a later compromise of either identity's keys exposes nothing said on a
+  connection; `cid`, direction and `seq` in the associated data refuse replay and reflection.
+  Their metadata is each side's own choice: a direct dial shows each end to the other and to
+  nobody else, an entry learns that its acquaintance was reached and by which tumbler, and a
+  frame through the tumblers is one more cell among cells. A reach record says that an identity
+  accepts connections and how, to anyone holding its card, and nothing to anyone else.
 - **Receipts and withdrawal.** A receipt is signed and sealed, so nobody can forge "received" for
   a message; a withdrawal is a signed correction, so nobody can withdraw another's words; and a
   message anyone received cannot be withdrawn, so the record a recipient holds is never silently
   rewritten against them.
 
-## 13. Versioning
+## 13. Connections
+
+Everything above reaches a recipient at its pigeonholes, on its beat, which is right for a
+conversation and too slow for a request and its answer. A **connection** is a two-way channel
+between two endpoints for what the beat is too slow for: it has an id, a key of its own, and a
+path per direction. Chat needs none of it. A layer that speaks request and answer over it —
+what a browser and a site do over HTTP — is a document of its own and rides on this one.
+
+13.1 **What a connection is.** A connection is named by a **connection id**, 16 bytes from the
+CSPRNG, minted by whoever opens it. It is between two endpoints, each speaking for an identity
+whose card the other holds or is handed in the open (13.4). It is keyed by a key the two derive
+for it alone (13.4). Each direction has a **path** (13.3): how that direction's frames reach the
+other side, chosen by the side that sends them within what the other side requires, and changed
+by either side at any time (13.5). Nothing in the swarm knows a connection exists: a tumbler sees
+frames of a cell's size, a custodian sees cells, and only the two ends hold the key.
+
+13.2 **Reach.** A seat that accepts connections says how it is reached in a signed **reach
+record**, which it places like any record — as cells (8), through the tumblers, with the
+custodians of its **reach mark**, the pigeonhole H(`convene/v1/reach` ‖ identity id ‖ slot) —
+on every slot turn and whenever the record changes, and keeps placing on its beat as 9.2 keeps
+any record. So finding a receiver is the lookup of 9.1 and the ask of 8.4 against a mark anyone
+holding the card can derive, and costs the swarm nothing new. The cells are sealed under the
+**reach key**, HKDF(`convene/v1/reach-key` ‖ identity id), so a custodian sees a mark and cells
+of 1129 bytes and anyone with the card opens them.
+
+```
+{ "v": 1, "id": <identity id>, "at": <slot>,
+  "min": <hops>,                    the fewest tumblers a frame to me passes
+  "direct": <route>,                a route I may be dialled at; absent when none
+  "entries": [ <endpoint@route>… ], peers in full I keep a hello with, that carry to me
+  "sig": (sig) }
+```
+
+`min` is the fewest tumblers (9.3) a frame to this seat must pass before it reaches the seat,
+an entry, or the pigeonhole; 0 lets a direct dial carry it. `direct` is a route the seat may be
+dialled at and is absent when it accepts no direct connection. `entries` are peers in full the
+seat is acquainted with (9.1) and greets with its hellos, so each knows the seat's route; a
+frame reaches the seat through one of them when `direct` is absent, and nobody but the entries
+learns the route. A seat MAY name itself its own entry, which says the same as `direct`. A
+record whose `at` is not the current slot or the one before is stale and MUST NOT be used; a
+reader keeps the newest it can open. A leaf (9.3) has no route and no entries of its own beyond
+the drop; its reach record names the peers in full it knows as entries, which carry to it the
+way they carry for it now.
+
+13.3 **Paths.** Each direction of a connection has a path, chosen by the sender of that direction
+and bounded by what the other side requires. A frame from *A* to *B* passes at least
+max(*B*'s `min`, *A*'s own choice) tumblers (9.3, with the hops of 8.5) and then ends in the
+first of three ways *B* allows:
+
+- **direct** — the last tumbler, or *A* itself when the depth is zero, hands the frame to *B* at
+  the route *B* published (13.2) or granted inside the connection (13.5);
+- **an entry** — the frame reaches one of *B*'s entries, as a `carry` naming *B*'s endpoint, and
+  the entry hands it on at the route it knows from *B*'s hello. An entry carries; it does not
+  withhold, and it spends no hop. The tumblers before it learn an entry's route, not *B*'s;
+- **the pigeonhole** — when *B* has published neither a route nor an entry that is up, the frame
+  is placed as cells at the pair's pigeonhole (8.2) and *B* reads it on its beat; the latency is
+  then the beat's, and the connection still works.
+
+The sender's own choice is for its own sake: *A* reaching *B* directly shows *B* *A*'s endpoint,
+and *A* that would rather not names a depth of one or more and a reach of its own (13.4) by which
+*B* answers. What a side requires, it requires of every frame toward it; what it chooses for its
+own frames it may exceed. A sender MUST NOT pass fewer tumblers than the other side requires; a
+receiver cannot tell how many a frame passed and does not try, since the hops byte is the
+sender's to set honestly (8.5) and the requirement binds the honest.
+
+13.4 **Opening, and the key.** The initiator sends `open ␟ cid ␟ sealed` along a path of its own
+choosing within the receiver's reach, where `sealed` is HPKE (3) to the receiver's agreement key
+from its card of
+
+```
+{ "v": 1, "cid": <connection id>, "from": <card>,
+  "eph": <X25519 public key>,
+  "reach": { "min", "direct", "entries" },   how to answer me — my reach, for this connection
+  "sig": (sig) }
+```
+
+signed by the initiator's identity. The receiver, if it accepts, answers with an `open` of the
+same `cid` along a path within the initiator's `reach`, sealed to the initiator's agreement key,
+carrying its own `eph` and reach. Both derive the **connection key**
+HKDF(`convene/v1/connection` ‖ X25519(eph_A, eph_B) ‖ cid) and discard the ephemerals; a later
+compromise of either identity's long-term keys exposes nothing said on the connection. A receiver
+that does not accept answers nothing: an open that goes unanswered is indistinguishable from one
+that never arrived, as everywhere in this protocol. An `open` that arrives for a `cid` already
+open is a duplicate and is dropped.
+
+13.5 **Frames on the connection.** Every frame after the opens is `cx ␟ cid ␟ seq ␟ sealed`:
+`seq` counts from 0 in each direction, and `sealed` is the AEAD under the connection key with
+`cid`, the direction and `seq` as associated data, so a frame cannot be replayed, reflected or
+reordered unnoticed; what order means to the layer above is the layer's. Inside the seal is a
+CBOR map with a kind:
+
+```
+{ "t": "data",  "stream": <n>, "bytes": <bytes> }         for the layer above
+{ "t": "path",  "min": <hops>, "direct": <route>?, "entries": [ … ]? }
+{ "t": "close" }
+```
+
+A `path` says how its sender is to be reached from now on in this connection: it takes effect
+for the other side's next frame, raises or lowers what its sender requires, grants or withdraws
+a direct route, names entries or drops them. A side changes its own reach and never the
+other's; the only way to move the other side's path is to require more of it. A `close` ends
+the connection; a `cx` for a closed or unknown `cid` is dropped. A `cx` is padded to a cell's
+size (8.1) before it is sealed, so on a path through tumblers it is one more cell among the
+cells; on a direct dial the two ends see each other by design, and nobody else sees anything.
+
+13.6 **What a peer learns.** A tumbler: frames of one size in and a batch out, as 9.7. An entry:
+that an acquaintance was reached, when, and by which tumbler — never by whom, and never what.
+A custodian of a reach mark: that the mark was written and asked for. The two ends of a direct
+dial: each other's endpoint, which is what direct means. As 9.4: how much of this hides anything
+is conditional on the swarm's size, and a client states the population rather than claiming
+more.
+
+## 14. Versioning
 
 Every card, envelope and cell content carries `v`. A reader ignores map keys it does not know and
 refuses a version it does not implement. New record kinds are added as new `kind` values; a v1
 reader drops an envelope of unknown kind silently. The cell layout is fixed for v1; the reserved
 bytes are zero and a reader ignores them.
 
-## 14. Not yet settled
+## 15. Not yet settled
 
 These are decided in direction and not in detail, and a client built today should expect them:
 
@@ -837,9 +965,13 @@ These are decided in direction and not in detail, and a client built today shoul
   them until the lookup converges (9.1); whether a sender should await the convergence before
   the first placement, or place again as the naming moves (the beat does), is owed a measured
   answer;
-- more than one hop, and a tumbler that reaches a destination it cannot route to: today a frame
-  whose last tumbler reaches neither the route it carries nor the endpoint is lost, and the
-  sender's beat places it again by another tumbler;
+- a tumbler that reaches a destination it cannot route to: today a frame whose last tumbler
+  reaches neither the route it carries nor the endpoint is lost, and the sender's beat places it
+  again by another tumbler; a connection's frame (13.5) lost the same way is the layer above's
+  to notice;
+- connections (13): how many entries a seat names and how it picks them, what an entry may
+  refuse, flow control and the size of a stream's frames once a layer above needs more than a
+  cell per frame, and the request-and-answer layer itself, which is a document of its own;
 - the one-cell-per-beat claim in the floors: a post places at once, and the slot turning places
   every kept message again;
 - a device set carrying the sender's keeping, so a second device of the same person can deliver

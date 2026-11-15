@@ -9,9 +9,10 @@ Two kinds of specification live here, and they answer different questions.
 **The protocol** — what any client, in any language, must do to interoperate:
 
 - [`protocol/transport.md`](protocol/transport.md) — identities, keys, records, sealing, cells,
-  the swarm — custody, mixing, the cadence, the small-swarm rule — and the flows: founding,
+  the swarm — custody, mixing, the cadence, the small-swarm rule — the flows: founding,
   proposing and enacting a membership change, rotating, adopting, acknowledging, withdrawing,
-  admitting a device, catching up.
+  admitting a device, catching up — and connections: a two-way channel with a key of its own
+  and a path per direction, for what the beat is too slow for.
 - [`protocol/rendering.md`](protocol/rendering.md) — the content of a message and how a
   conversation is presented: the Markdown dialect, what a line shows, order, and the reserved
   shapes for images, video and retraction.
