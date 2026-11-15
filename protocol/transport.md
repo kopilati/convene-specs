@@ -157,9 +157,16 @@ defined in section 3.
   "author": <identity id, 32 bytes>,
   "parents": [ <16 bytes>, ... ],
   "answers": <16 bytes>,                                 optional
+  "sent": <unix seconds, UTC>,
   "content": <bytes, as the rendering protocol defines>, absent in a withdrawal
   "sig": (sig, `convene/v1/message`) }
 ```
+
+`sent` is when the author's device made the message, in seconds since the epoch, UTC, by the
+author's own clock. It is the author's claim: a client shows it as local time and MUST NOT order
+messages by it — order is the parents' (section 5 of the rendering protocol). A correction carries
+its own `sent`; a withdrawal carries the message's, since it empties the place and does not move
+it. (The rendering protocol's `at` is withdrawn in favour of this field; a reader ignores it.)
 
 `parents` are the ids of **every** tip of the conversation the author's device held when the
 message was made — the frontier, so that two messages written at once are siblings and the next
@@ -308,13 +315,55 @@ content and the current frontier as parents — so that everyone, those who got 
 included, reads what was in fact received. A withdrawn message nobody ever covered leaves no
 trace for anyone.
 
+6.8 **Reaction**
+
+```
+{ "lineage": <16 bytes>,
+  "author": <identity id, 32 bytes>,
+  "message": <16 bytes>,
+  "mark": <text>,
+  "image": <cid>,                                        custom reactions only
+  "present": true | false,
+  "sent": <unix seconds, UTC>,
+  "sig": (sig, `convene/v1/reaction`) }
+```
+
+A member's mark on a message: `mark` is an emoji, or a custom reaction's name, in which case
+`image` names the picture — the cid of a blob (6.9) shared with the lineage. `present` says
+whether the mark stands or this record takes it back. A reaction is a toggle, not a history: of
+one author's records with one `(mark, image)` on one message, **the latest `sent` stands**, and
+at a tie the record with `present: false` wins, so a reader never shows a mark its author took
+back in the same second. A client sends a reaction to every member of the current epoch, its own
+inbox among them, sealed under the current epoch's key of the lineage, once — it is a record,
+not a message: the beat does not re-place it, and catch-up (10.8) covers what a custodian no
+longer holds. A reaction on a message the reader does not hold is kept until the message
+arrives. `mark` MUST NOT exceed 64 bytes of UTF-8.
+
+6.9 **Blob**
+
+```
+{ "media": "image/png" | "image/webp",
+  "bytes": <bytes> }
+```
+
+A small picture a lineage shares — a custom reaction's image — named by its content. Its **cid**
+is the CIDv1 of the raw codec over the SHA-256 of `bytes`, in lowercase base32 with the multibase
+prefix `b` (`bafkrei…`): the name IPFS would give the same bytes, computed by every reader from
+the bytes it opens and never trusted from a record. `bytes` MUST NOT exceed 32,768 and the
+picture MUST NOT exceed 128 by 128 pixels; a reader shows a blob that breaks either rule as the
+reaction's name, not as a picture. A blob is sealed under the current epoch's key of the lineage
+(7.2) and sent to every member of the epoch once, on the first reaction that names it; a client
+that holds a reaction naming a cid it does not hold shows the reaction's name in its place and
+asks for the blob as it asks for anything it missed (10.8). No client fetches a blob from
+anywhere but its own inbox: not from IPFS, not from a server — a group's picture is the group's.
+
 ## 7. Sealing and envelopes
 
 7.1 **An envelope** is what one record becomes on its way to one recipient:
 
 ```
 { "v": 1,
-  "kind": "message" | "revision" | "proposal" | "approval" | "catchup" | "receipt",
+  "kind": "message" | "revision" | "proposal" | "approval" | "catchup" | "receipt" | "reaction" | "blob",
   "key": <key id>,
   "nonce": <24 bytes>,
   "ct": <bytes> }
@@ -328,8 +377,8 @@ HPKE ciphertext of 6.5, not a sealing under an epoch key.
 7.2 **Which key.** A message is sealed under the current epoch's key of its lineage at the moment
 of sending. A revision is sealed under the key of the epoch it begins. A proposal or approval is
 sealed under the key of the epoch it stands on. A catch-up request is sealed under the key of the
-newest epoch the requester holds for the lineage. A receipt is sealed under the current epoch's
-key of its lineage.
+newest epoch the requester holds for the lineage. A receipt, a reaction and a blob are sealed
+under the current epoch's key of their lineage.
 
 7.3 **Per-recipient copies.** The sender seals the same record afresh for each recipient, with a
 fresh nonce, so that no two recipients hold the same bytes. The sender's own copy is a recipient's

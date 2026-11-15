@@ -29,7 +29,6 @@ deterministic encoding with text-string keys; unknown keys are ignored on read.
 
 ```
 { "v": 1,
-  "at": <unix milliseconds>,            optional: when the author composed it, the author's claim
   "parts": [ <part>, ... ] }
 ```
 
@@ -50,8 +49,12 @@ and a withdrawal is a correction with no content (transport 6.1). A reader ignor
 - A client MUST render every part type it implements and MUST show a placeholder for a part type
   it does not, saying that there is something it cannot show. It MUST NOT drop a message because
   one of its parts is unknown, and MUST NOT hide that a part exists.
-- `at` is the author's claim and is shown as such. The transport carries no clock; a client MUST
-  NOT reorder messages by `at`. Order comes from the transport's timeline fold (section 5).
+- When a message was sent is the transport record's `sent` (transport 6.1), UTC seconds by the
+  author's clock. A client shows it as **local time** — the time alone on the day it is read, the
+  weekday within the week, the date beyond — and divides the reading with it where the day turns
+  or more than ten minutes pass between lines; it MUST NOT reorder messages by it. Order comes
+  from the transport's timeline fold (section 5). (The 2026-11-12 draft carried `at` inside
+  `content`; it is withdrawn, and a reader ignores it.)
 - What a message answers comes from the transport (`answers`, transport 6.1). A client shows a
   quote — the answered message's speaker and opening words — above a line **only when** the
   answered message is not the line directly above it, so the ordinary back-and-forth carries no
@@ -149,12 +152,26 @@ as one. A client MAY keep local reading state (what the person has seen on this 
 share it between the devices of one identity through the device set; it MUST NOT send it to other
 members.
 
-## 7. Reserved: images and video; withdrawal
+## 7. Reactions
+
+The transport carries **reactions** (transport 6.8): a member's mark on a message, standing or
+taken back, the latest word per author and mark winning. A client shows the marks standing on a
+line **tallied** under it: one chip per distinct mark, the emoji or the custom reaction's picture
+at about the line's x-height, the count beside it when more than one, the reader's own marks
+drawn as theirs (a tint, a border), and on hover or press the names of those who put it there. A
+tap on a chip toggles the reader's own mark; a client offers a short row of common emoji on a
+line and a way to add a custom reaction: a name and a picture, which it shares as a blob
+(transport 6.9) once and names by cid thereafter. A custom reaction whose blob the reader does
+not hold is shown by its name, `:name:`, until the blob arrives. A client MUST NOT send a
+reaction on a message it does not hold, and MUST NOT let a reaction move a line: a reaction is
+not a message and has no place in the order.
+
+## 8. Reserved: images and video; withdrawal
 
 These part types are defined in direction so that a v1 client shows the right placeholder and a
 later client sends the right thing. They are not to be sent by a v1 client.
 
-7.1 **Attachments.** An image or video does not ride inside `content`. It is a **blob**: bytes
+8.1 **Attachments.** An image or video does not ride inside `content`. It is a **blob**: bytes
 sealed under the lineage's epoch key at the time of sending, chunked into cells and delivered to
 each recipient exactly as an envelope is (transport, section 8), identified by the SHA-256 of
 the sealed bytes. A part refers to its blob:
@@ -185,7 +202,7 @@ withdrawn; one restored after a late receipt (transport 6.7) returns to its plac
 words, and the author's client says in one line that it was received before it could be taken
 back.
 
-## 8. Versioning
+## 9. Versioning
 
 `v` names the content envelope's version. A client that receives a `v` it does not implement
 shows a placeholder saying the message needs a newer client, and keeps the message. New part
