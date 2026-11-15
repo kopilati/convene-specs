@@ -126,7 +126,10 @@ kept for the person to inspect. A client MUST NOT show a correction as a new lin
 The **chat itself is named by its people**: the shown names of the current revision's members
 other than the reader, or the reader's own shown name when they stand alone. Nothing on the wire
 carries a group name in v1. A client MAY let the person give a chat a local name, and MUST make
-clear it is local.
+clear it is local. Likewise a client MAY let the person attach a picture to a seat — their own
+or someone else's — and that picture is local too: it is never carried on the wire, placed with
+a custodian, or put in a card link, because a face given by one person for another is the
+other's to give, not the labeller's. An identity's own picture, published by choice, is not in v1.
 
 **The same people founded twice are one chat.** Two lineages whose current epochs name the same
 members — the same set of identities — present as one chat, not as two entries under the same
