@@ -128,6 +128,20 @@ other than the reader, or the reader's own shown name when they stand alone. Not
 carries a group name in v1. A client MAY let the person give a chat a local name, and MUST make
 clear it is local.
 
+**The same people founded twice are one chat.** Two lineages whose current epochs name the same
+members — the same set of identities — present as one chat, not as two entries under the same
+names: a chat founded again, after its history went missing from a device, reads as that history
+continued. A client MUST fold such lineages into one entry and one reading. The reading is each
+lineage's conversation in its own order (section 5), the lineages in sequence: ordered by the
+latest `at` any message in each carries, earliest first, a lineage in which nothing has been said
+after them all, and ties by lineage id, so every member folds the same way. The person writes in
+the last lineage of the fold; a reaction or a withdrawal lands in the lineage of the message it
+names, under that lineage's epoch key, so it stands beside its line for everyone. A lineage in
+which the reader stands alone, and a device set (transport 5.2), never fold. Membership changes
+apply to the lineage written in; a lineage whose current members move on stands as a chat of its
+own again. Nothing on the wire says two lineages are one chat; the fold is the client's reading of
+the record, and the record stays as it is.
+
 ## 5. Order
 
 Order is the transport's: a message stands after every message it names as a parent — and it
