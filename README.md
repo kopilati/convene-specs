@@ -8,11 +8,14 @@ Two kinds of specification live here, and they answer different questions.
 
 **The protocol** — what any client, in any language, must do to interoperate:
 
-- [`protocol/transport.md`](protocol/transport.md) — identities, keys, records, sealing, cells,
-  the swarm — custody, mixing, the cadence, the small-swarm rule — the flows: founding,
-  proposing and enacting a membership change, rotating, adopting, acknowledging, withdrawing,
-  admitting a device, catching up — and connections: a two-way channel with a key of its own
-  and a path per direction, for what the beat is too slow for.
+- **Aegis**, the layer convene shares with any product built the same way: identities, keys,
+  lineages, sealing, cells, the swarm — custody, the chain, the cadence, the balance — and
+  connections. It is drafted in `kopilati/cairn` at `protocol/aegis.md` and is due a repository
+  of its own.
+- [`protocol/transport.md`](protocol/transport.md) — what is convene's on top of Aegis: the
+  records of a conversation, the two charters a group and a device set are founded under, and
+  the flows: meeting, sending, acknowledging, withdrawing, catching up. Its section 16 lists
+  what changed on the wire from the 2026-11-14 draft.
 - [`protocol/rendering.md`](protocol/rendering.md) — the content of a message and how a
   conversation is presented: the Markdown dialect, what a line shows, order, and the reserved
   shapes for images, video and retraction.

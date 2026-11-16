@@ -1,6 +1,7 @@
 # Convene rendering protocol, version 1
 
-**Status: draft for review, 2026-11-12.** Nothing here is frozen. The presentation this protocol
+**Status: draft for review, 2026-11-12; references re-pointed 2026-11-16**, when the transport
+protocol was rebased on Aegis (`transport.md`). Nothing here is frozen. The presentation this protocol
 fixes is specified as DCI drafts in the convene tree in `kopilati/nord` (`examples/convene`,
 the `surface` crate). Where this document and those drafts disagree, the drafts are the
 specification and this document has a defect to be fixed.
@@ -140,7 +141,7 @@ latest `at` any message in each carries, earliest first, a lineage in which noth
 after them all, and ties by lineage id, so every member folds the same way. The person writes in
 the last lineage of the fold; a reaction or a withdrawal lands in the lineage of the message it
 names, under that lineage's epoch key, so it stands beside its line for everyone. A lineage in
-which the reader stands alone, and a device set (transport 5.2), never fold. Membership changes
+which the reader stands alone, and a device set (Aegis 5.2), never fold. Membership changes
 apply to the lineage written in; a lineage whose current members move on stands as a chat of its
 own again. Nothing on the wire says two lineages are one chat; the fold is the client's reading of
 the record, and the record stays as it is.
@@ -190,7 +191,7 @@ later client sends the right thing. They are not to be sent by a v1 client.
 
 8.1 **Attachments.** An image or video does not ride inside `content`. It is a **blob**: bytes
 sealed under the lineage's epoch key at the time of sending, chunked into cells and delivered to
-each recipient exactly as an envelope is (transport, section 8), identified by the SHA-256 of
+each recipient exactly as an envelope is (Aegis, section 8), identified by the SHA-256 of
 the sealed bytes. A part refers to its blob:
 
 ```
